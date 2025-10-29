@@ -1,0 +1,17 @@
+[project]
+name = "msnerf"
+version="1.0.0"
+dependencies = [
+    "nerfstudio",
+    "tinycudann"
+]
+authors = [
+  {email = "3200101345@zju.edu.cn"},
+  {name = "Leisen Fang"}
+]
+
+[tool.setuptools.packages.find]
+include = ["msnerf*"]
+
+[project.entry-points.'nerfstudio.method_configs']
+msnerf = 'msnerf.ms_config:MsNeRFMethod'
