@@ -1,9 +1,18 @@
+[build-system]
+requires = [
+    "setuptools>=61.0",
+    "wheel",
+    "torch",
+    "ninja"
+]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "msnerf"
 version="1.0.0"
 dependencies = [
     "nerfstudio",
-    "tinycudann"
+    "tinycudann @ git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch"
 ]
 authors = [
   {email = "3200101345@zju.edu.cn"},

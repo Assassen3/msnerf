@@ -12,30 +12,19 @@ from msnerf.ms_model import MSNerfModelConfig
 MsNeRFMethod = MethodSpecification(
     config=TrainerConfig(
         method_name="msnerf",
-        steps_per_save=10000,
-        max_num_iterations=10000,
-        steps_per_eval_batch=500,
-        steps_per_eval_image=1000,
+        steps_per_save=2000,
+        max_num_iterations=2000,
+        steps_per_eval_batch=3000,
+        steps_per_eval_image=3000,
         mixed_precision=True,
         pipeline=VanillaPipelineConfig(
             datamanager=ParallelDataManagerConfig(
                 _target=MSParallelDataManager,
-                dataparser=MSDataParserConfig(
-                    keep_coord=False
-                ),
-                train_num_rays_per_batch=1 << 13,
-                eval_num_rays_per_batch=1 << 14,
+                dataparser=MSDataParserConfig(),
+                train_num_rays_per_batch=1 << 14,
+                eval_num_rays_per_batch=1 << 15,
             ),
-            model=MSNerfModelConfig(
-                num_multispectral=25,
-                eval_num_rays_per_chunk=1 << 15,
-                num_nerf_samples_per_ray=32,
-                num_proposal_samples_per_ray=(256, 128),
-                hidden_dim=128,
-                hidden_dim_ms=128,
-                average_init_density=0.01,
-                log2_hashmap_size=18
-            ),
+            model=MSNerfModelConfig(senmantic=True),
         ),
         optimizers={
             "proposal_networks": {

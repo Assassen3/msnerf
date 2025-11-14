@@ -39,10 +39,10 @@ class MSNerfModelConfig(ModelConfig):
     log2_hashmap_size: int = 19
     features_per_level: int = 2
     num_layers: int = 2
-    hidden_dim: int = 64
+    hidden_dim: int = 128
     geo_feat_dim: int = 15
     num_layers_ms: int = 3
-    hidden_dim_ms: int = 64
+    hidden_dim_ms: int = 128
     implementation: Literal["tcnn", "torch"] = "tcnn"
     camera_optimizer: CameraOptimizerConfig = field(default_factory=lambda: CameraOptimizerConfig(mode="SO3xR3"))
     use_proposal_weight_anneal: bool = True
@@ -54,13 +54,13 @@ class MSNerfModelConfig(ModelConfig):
             {"hidden_dim": 16, "log2_hashmap_size": 17, "num_levels": 5, "max_res": 256, "use_linear": False},
         ]
     )
-    average_init_density: float = 1.0
+    average_init_density: float = 0.01
 
     proposal_update_every: int = 5
     proposal_warmup: int = 5000
     proposal_initial_sampler: Literal["piecewise", "uniform"] = "piecewise"
     num_nerf_samples_per_ray: int = 48
-    num_proposal_samples_per_ray: Tuple[int, ...] = (256, 96)
+    num_proposal_samples_per_ray: Tuple[int, ...] = (256, 128)
     use_single_jitter: bool = True
     near_plane: float = 0.05
     far_plane: float = 1000.0
@@ -84,11 +84,7 @@ class MSNerfModel(Model):
     def populate_modules(self):
         super().populate_modules()
 
-        if self.config.disable_scene_contraction:
-            scene_contraction = None
-        else:
-            scene_contraction = SceneContraction(order=float("inf"))
-
+        scene_contraction = SceneContraction(order=float("inf"))
         self.field = MSNerfField(
             aabb=self.scene_box.aabb,
             num_images=self.num_train_data,
@@ -323,7 +319,7 @@ class MSNerfModel(Model):
             outputs["expected_depth"],
             accumulation=outputs["accumulation"],
         )
-        predicted_ms = self.renderer_ms.extract_band(predicted_ms, outputs["ms_index"])
+        predicted_ms = self.renderer_ms._extract_band(predicted_ms, outputs["ms_index"])
         combined_ms = torch.cat([gt_ms, predicted_ms], dim=1)
         combined_acc = torch.cat([acc], dim=1)
         combined_depth = torch.cat([depth], dim=1)

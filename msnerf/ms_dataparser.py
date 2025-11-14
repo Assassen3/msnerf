@@ -31,7 +31,6 @@ class MSDataParserConfig(DataParserConfig):
     depth_unit_scale_factor: float = 1e-3
     mask_color: Optional[Tuple[float, float, float]] = None
     auto_scale_poses: bool = True
-    keep_coord: bool = False
 
 
 @dataclass
@@ -143,21 +142,6 @@ class MSDatasetParser(DataParser):
             raise ValueError(f"Unknown dataparser split {split}")
 
         poses = torch.from_numpy(np.array(poses).astype(np.float32))
-        if not self.config.keep_coord:
-            orientation_method = self.config.orientation_method
-
-            poses, transform_matrix = camera_utils.auto_orient_and_center_poses(
-                poses,
-                method=orientation_method,
-                center_method=self.config.center_method,
-            )
-
-            # Scale poses
-            scale_factor = 1.0
-            if self.config.auto_scale_poses:
-                scale_factor /= float(torch.max(torch.abs(poses[:, :3, 3])))
-
-            poses[:, :3, 3] *= scale_factor
 
         image_filenames = [image_filenames[i] for i in indices]
 

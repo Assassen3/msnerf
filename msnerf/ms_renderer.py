@@ -1,26 +1,23 @@
-from typing import Literal, Optional, Tuple, Union
+from typing import Optional, Tuple, Union
 
 import nerfacc
 import torch
 from jaxtyping import Float, Int
 from torch import Tensor, nn
 
-BackgroundColor = Union[Literal["random", "last_sample", "black", "white"], Float[Tensor, "3"], Float[Tensor, "*bs 3"]]
-BACKGROUND_COLOR_OVERRIDE: Optional[Float[Tensor, "3"]] = None
-
 
 class MSRenderer(nn.Module):
-    def __init__(self, num_ms: int, background_color: BackgroundColor = "random", semantic=False, *args, **kwargs):
+    def __init__(self, num_ms: int, background_color="random", semantic=False, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.num_ms = num_ms
-        self.background_color: BackgroundColor = background_color
+        self.background_color = background_color
         self.semantic = semantic
 
     def combine_ms(
             self,
             ms: Float[Tensor, "*bs num_samples num_ms"],
             weights: Float[Tensor, "*bs num_samples 1"],
-            background_color: BackgroundColor = "random",
+            background_color="random",
             ray_indices: Optional[Int[Tensor, "num_samples"]] = None,
             num_rays: Optional[int] = None,
     ) -> Float[Tensor, "*bs num_ms"]:
@@ -37,8 +34,6 @@ class MSRenderer(nn.Module):
         else:
             comp_ms = torch.sum(weights * ms, dim=-2)
             accumulated_weight = torch.sum(weights, dim=-2)
-        if BACKGROUND_COLOR_OVERRIDE is not None:
-            background_color = BACKGROUND_COLOR_OVERRIDE
         if background_color == "random":
             return comp_ms
         elif background_color == "last_sample":
@@ -51,12 +46,10 @@ class MSRenderer(nn.Module):
         return comp_ms
 
     def get_background_color(
-            self, background_color: BackgroundColor, shape: Tuple[int, ...], device: torch.device
+            self, background_color, shape: Tuple[int, ...], device: torch.device
     ) -> Union[Float[Tensor, "3"], Float[Tensor, "*bs 3"]]:
         assert background_color not in {"last_sample", "random"}
         # assert shape[-1] == 3, "Background color must be RGB."
-        if BACKGROUND_COLOR_OVERRIDE is not None:
-            background_color = BACKGROUND_COLOR_OVERRIDE
         if isinstance(background_color, str) and background_color == "ms_black":
             background_color = torch.tensor([0.0, ], device=device)
         assert isinstance(background_color, Tensor)
@@ -66,8 +59,15 @@ class MSRenderer(nn.Module):
     def blend_background(
             self,
             image: Tensor,
-            background_color: Optional[BackgroundColor] = None,
+            background_color=None,
     ) -> Float[Tensor, "*bs num_ms"]:
+        '''
+        对真值数图片背景处理
+        怀疑啥也没干
+        :param image:
+        :param background_color:
+        :return:
+        '''
         if not self.semantic:
             return image
         opacity = (image > 0).to(image)
@@ -87,9 +87,18 @@ class MSRenderer(nn.Module):
             ms_index: Tensor,
             gt_image: Tensor,
     ) -> Tuple[Tensor, Tensor]:
-        pred_image = self.extract_band(pred_image, ms_index)
+        '''
+        在训练时使用，将背景透明化
+        :param pred_image:
+        :param pred_accumulation:
+        :param ms_index:
+        :param gt_image:
+        :return:
+        '''
+        pred_image = self._extract_band(pred_image, ms_index)
         background_color = self.background_color
         if background_color == "last_sample":
+            raise NotImplementedError  # 只做测试，可删
             background_color = "black"  # No background blending for GT
         elif background_color == "random":
             background_color = torch.rand_like(pred_image)
@@ -97,7 +106,7 @@ class MSRenderer(nn.Module):
         gt_image = self.blend_background(gt_image, background_color=background_color)
         return pred_image, gt_image
 
-    def extract_band(self, pred_image: Tensor, ms_index: Tensor) -> Tensor:
+    def _extract_band(self, pred_image: Tensor, ms_index: Tensor) -> Tensor:
         assert pred_image.shape[:-1] == ms_index.shape[:-1]
         return torch.gather(pred_image, -1, ms_index)
 
@@ -107,7 +116,7 @@ class MSRenderer(nn.Module):
             weights: Float[Tensor, "*bs num_samples 1"],
             ray_indices: Optional[Int[Tensor, "num_samples"]] = None,
             num_rays: Optional[int] = None,
-            background_color: Optional[BackgroundColor] = None,
+            background_color=None,
     ) -> Float[Tensor, "*bs num_ms"]:
         if background_color is None:
             background_color = self.background_color
