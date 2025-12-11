@@ -1,36 +1,26 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, Optional, Tuple, Type, Dict
+from typing import Dict, Optional, Type
 
 import numpy as np
 import torch
-from dataclasses import dataclass, field
 from nerfstudio.cameras import camera_utils
-from nerfstudio.cameras.cameras import CAMERA_MODEL_TO_TYPE, Cameras, CameraType
+from nerfstudio.cameras.cameras import CameraType, Cameras
 from nerfstudio.data.dataparsers.base_dataparser import DataParser, DataParserConfig, DataparserOutputs
 from nerfstudio.data.scene_box import SceneBox
 from nerfstudio.data.utils.dataparsers_utils import (
-    get_train_eval_split_all,
-    get_train_eval_split_filename,
     get_train_eval_split_fraction,
-    get_train_eval_split_interval,
 )
 from nerfstudio.utils.io import load_from_json
-from nerfstudio.utils.rich_utils import CONSOLE
 
 
 @dataclass
 class MSDataParserConfig(DataParserConfig):
     _target: Type = field(default_factory=lambda: MSDatasetParser)
-    eval_mode: Literal["fraction", "filename", "interval", "all"] = "fraction"
     train_split_fraction: float = 0.9
     scene_scale: float = 2.0
-    orientation_method: Literal["pca", "up", "vertical", "none"] = "up"
-    center_method: Literal["poses", "focus", "none"] = "poses"
-    depth_unit_scale_factor: float = 1e-3
-    mask_color: Optional[Tuple[float, float, float]] = None
-    auto_scale_poses: bool = True
 
 
 @dataclass
@@ -51,24 +41,6 @@ class MSDatasetParser(DataParser):
         mask_filenames = []
         poses = []
 
-        fx_fixed = "fl_x" in meta
-        fy_fixed = "fl_y" in meta
-        cx_fixed = "cx" in meta
-        cy_fixed = "cy" in meta
-        height_fixed = "h" in meta
-        width_fixed = "w" in meta
-        num_channels_fixed = "num_ms" in meta
-        distort_fixed = False
-
-        fx = []
-        fy = []
-        cx = []
-        cy = []
-        height = []
-        width = []
-        num_channels = []
-        distort = []
-
         # sort the frames by fname
         fnames = []
         for frame in meta["frames"]:
@@ -82,57 +54,13 @@ class MSDatasetParser(DataParser):
             filepath = Path(frame["file_path"])
             fname = data_dir / filepath
 
-            if not fx_fixed:
-                assert "fl_x" in frame, "fx not specified in frame"
-                fx.append(float(frame["fl_x"]))
-            if not fy_fixed:
-                assert "fl_y" in frame, "fy not specified in frame"
-                fy.append(float(frame["fl_y"]))
-            if not cx_fixed:
-                assert "cx" in frame, "cx not specified in frame"
-                cx.append(float(frame["cx"]))
-            if not cy_fixed:
-                assert "cy" in frame, "cy not specified in frame"
-                cy.append(float(frame["cy"]))
-            if not height_fixed:
-                assert "h" in frame, "height not specified in frame"
-                height.append(int(frame["h"]))
-            if not width_fixed:
-                assert "w" in frame, "width not specified in frame"
-                width.append(int(frame["w"]))
-            if not num_channels_fixed:
-                assert "num_ms" in frame, "num_channels not specified in frame"
-                num_channels.append(int(frame["num_channels"]))
-            if not distort_fixed:
-                distort.append(
-                    torch.tensor(frame["distortion_params"], dtype=torch.float32)
-                    if "distortion_params" in frame
-                    else camera_utils.get_distortion_params(
-                        k1=float(frame["k1"]) if "k1" in frame else 0.0,
-                        k2=float(frame["k2"]) if "k2" in frame else 0.0,
-                        k3=float(frame["k3"]) if "k3" in frame else 0.0,
-                        k4=float(frame["k4"]) if "k4" in frame else 0.0,
-                        p1=float(frame["p1"]) if "p1" in frame else 0.0,
-                        p2=float(frame["p2"]) if "p2" in frame else 0.0,
-                    )
-                )
-
             image_filenames.append(fname)
             poses.append(np.array(frame["transform_matrix"]))
+            if 'mask_path' in meta:
+                mask_name = Path(meta["mask_path"]) / fname.name
+                mask_filenames.append(mask_name)
 
-        if self.config.eval_mode == "fraction":
-            i_train, i_eval = get_train_eval_split_fraction(image_filenames, self.config.train_split_fraction)
-        elif self.config.eval_mode == "filename":
-            i_train, i_eval = get_train_eval_split_filename(image_filenames)
-        elif self.config.eval_mode == "interval":
-            i_train, i_eval = get_train_eval_split_interval(image_filenames, self.config.eval_interval)
-        elif self.config.eval_mode == "all":
-            CONSOLE.log(
-                "[yellow] Be careful with '--eval-mode=all'. If using camera optimization, the cameras may diverge in the current implementation, giving unpredictable results."
-            )
-            i_train, i_eval = get_train_eval_split_all(image_filenames)
-        else:
-            raise ValueError(f"Unknown eval mode {self.config.eval_mode}")
+        i_train, i_eval = get_train_eval_split_fraction(image_filenames, self.config.train_split_fraction)
 
         if split == "train":
             indices = i_train
@@ -155,36 +83,17 @@ class MSDatasetParser(DataParser):
             )
         )
 
-        if "camera_model" in meta:
-            camera_type = CAMERA_MODEL_TO_TYPE[meta["camera_model"]]
-        else:
-            camera_type = CameraType.PERSPECTIVE
-
-        fx = float(meta["fl_x"]) if fx_fixed else torch.tensor(fx, dtype=torch.float32)[idx_tensor]
-        fy = float(meta["fl_y"]) if fy_fixed else torch.tensor(fy, dtype=torch.float32)[idx_tensor]
-        cx = float(meta["cx"]) if cx_fixed else torch.tensor(cx, dtype=torch.float32)[idx_tensor]
-        cy = float(meta["cy"]) if cy_fixed else torch.tensor(cy, dtype=torch.float32)[idx_tensor]
-        height = int(meta["h"]) if height_fixed else torch.tensor(height, dtype=torch.int32)[idx_tensor]
-        width = int(meta["w"]) if width_fixed else torch.tensor(width, dtype=torch.int32)[idx_tensor]
-        num_channels = int(meta["num_ms"]) if num_channels_fixed else torch.tensor(num_channels, dtype=torch.int32)[
-            idx_tensor]
-        if distort_fixed:
-            distortion_params = (
-                torch.tensor(meta["distortion_params"], dtype=torch.float32)
-                if "distortion_params" in meta
-                else camera_utils.get_distortion_params(
-                    k1=float(meta["k1"]) if "k1" in meta else 0.0,
-                    k2=float(meta["k2"]) if "k2" in meta else 0.0,
-                    k3=float(meta["k3"]) if "k3" in meta else 0.0,
-                    k4=float(meta["k4"]) if "k4" in meta else 0.0,
-                    p1=float(meta["p1"]) if "p1" in meta else 0.0,
-                    p2=float(meta["p2"]) if "p2" in meta else 0.0,
-                )
-            )
-        else:
-            distortion_params = torch.stack(distort, dim=0)[idx_tensor]
-
+        fx = float(meta["fl_x"])
+        fy = float(meta["fl_y"])
+        cx = float(meta["cx"])
+        cy = float(meta["cy"])
+        height = int(meta["h"])
+        width = int(meta["w"])
+        num_channels = int(meta["num_ms"])
+        distortion_params = (camera_utils.get_distortion_params())
+        camera_type = CameraType.PERSPECTIVE
         metadata = {"num_ms": num_channels}
+        mask_points = meta.get("mask_points", None)
 
         cameras = Cameras(
             fx=fx,
@@ -204,6 +113,6 @@ class MSDatasetParser(DataParser):
             cameras=cameras,
             scene_box=scene_box,
             mask_filenames=mask_filenames if len(mask_filenames) > 0 else None,
-            metadata={},
+            metadata={'mask_points': mask_points},
         )
         return dataparser_outputs

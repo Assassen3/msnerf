@@ -63,7 +63,8 @@ class MSRenderer(nn.Module):
     ) -> Float[Tensor, "*bs num_ms"]:
         '''
         对真值数图片背景处理
-        怀疑啥也没干
+        不开semantic就返回原图
+        开了semantic就会对背景部分涂黑(metrics)，或随机颜色(loss)
         :param image:
         :param background_color:
         :return:
@@ -95,7 +96,7 @@ class MSRenderer(nn.Module):
         :param gt_image:
         :return:
         '''
-        pred_image = self._extract_band(pred_image, ms_index)
+        # pred_image = self._extract_band(pred_image, ms_index)
         background_color = self.background_color
         if background_color == "last_sample":
             raise NotImplementedError  # 只做测试，可删

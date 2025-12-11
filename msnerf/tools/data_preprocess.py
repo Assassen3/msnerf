@@ -228,4 +228,4 @@ def estimate_positions(colmap_exe: str,
 
 if __name__ == '__main__':
     estimate_positions(r"D:\files\PHD\myNeRF\COLMAP-3.7-windows-cuda\COLMAP.bat",
-                       r"D:\files\PHD\myNeRF\data\91_0", )
+                       r"D:\files\PHD\myNeRF\data\89_0", )
