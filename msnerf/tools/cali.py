@@ -21,7 +21,7 @@ from msnerf.ms_model import MSNerfModel
 from msnerf.tools.miscs import get_cali_matrix, r2_score, reference_gt_reflectance
 
 if __name__ == '__main__':
-    path = Path(r"D:\files\PHD\myNeRF\msnerf\outputs\89_0\msnerf\config.yml")
+    path = Path(r"D:\files\PHD\myNeRF\msnerf\outputs\87_0\msnerf\config.yml")
     config = yaml.load(path.read_text(), Loader=yaml.Loader)
     assert isinstance(config, TrainerConfig)
     config.load_dir = config.get_checkpoint_dir()

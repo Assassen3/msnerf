@@ -171,7 +171,7 @@ class MaskedDataManager(DataManager):
         self.masks = self.masks[np.concatenate((i_train, i_eval), axis=0)]
 
     def next_train(self, step: int) -> Tuple[RayBundle, Dict]:
-        if step < 500:
+        if step % 2 == 0:
             indices = self.sample_index(self.config.train_num_rays_per_batch, (360, 1085, 2045))
         else:
             indices = self.sample_index(self.config.train_num_rays_per_batch, (360, 1085, 2045),

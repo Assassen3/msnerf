@@ -13,7 +13,7 @@ from msnerf.ms_datamanager import MaskedDataManager
 from msnerf.ms_model import MSNerfModel
 
 if __name__ == '__main__':
-    path = Path(r"D:\files\PHD\myNeRF\msnerf\outputs\89_0\msnerf\config.yml")
+    path = Path(r"D:\files\PHD\myNeRF\msnerf\outputs\61_0\msnerf\config.yml")
     out_path = path.parent / 'render'
     if not out_path.exists():
         os.makedirs(out_path)
@@ -26,7 +26,7 @@ if __name__ == '__main__':
     ms_model: MSNerfModel = trainer.pipeline._model
     datamanager: MaskedDataManager = pipeline.datamanager
     with torch.no_grad():
-        img_num = [355]
+        img_num = [11]
         cameras = datamanager.train_dataset.cameras
         for i in tqdm.tqdm(img_num):
             img_idx = i // 10 * 9 + i % 10

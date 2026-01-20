@@ -86,9 +86,10 @@ def closest_point_2_lines(oa, da, ob,
 
 def estimate_positions(colmap_exe: str,
                        work_dir,
+                       image_folder:str='images',
                        json_name='transforms.json',
                        debug=False):
-    images_path = pjoin(work_dir, 'images')
+    images_path = pjoin(work_dir, image_folder)
     text_path = pjoin(work_dir, 'text')
     db_path = pjoin(work_dir, 'colmap.db')
     sparse_path = pjoin(work_dir, 'sparse')
@@ -228,4 +229,7 @@ def estimate_positions(colmap_exe: str,
 
 if __name__ == '__main__':
     estimate_positions(r"D:\files\PHD\myNeRF\COLMAP-3.7-windows-cuda\COLMAP.bat",
-                       r"D:\files\PHD\myNeRF\data\89_0", )
+                       r"D:\files\PHD\myNeRF\data\61_0",
+                       image_folder='demosaic_images',
+                       json_name='demosaic_transforms.json'
+                       )
