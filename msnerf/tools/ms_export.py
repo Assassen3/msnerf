@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-import PLYLoader
+# import msnerf.PLYLoader as PLYLoader
 import numpy as np
 import torch
 from nerfstudio.data.scene_box import OrientedBox

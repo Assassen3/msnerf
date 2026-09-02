@@ -1,9 +1,7 @@
 from pathlib import Path
 
-import PLYLoader
-import matplotlib.lines as lines
-import matplotlib.patches as patches
 import matplotlib.pyplot as plt
+import msnerf.PLYLoader as PLYLoader
 
 from msnerf.tools.asd import load_asd
 from msnerf.tools.miscs import wavelengths
@@ -38,14 +36,6 @@ if __name__ == '__main__':
     ax.set_xlabel('Wavelength (nm)')
     ax.set_ylabel('Reflectance')
     ax.xaxis.set_ticks([667, 700, 750, 800, 850, 900, 949])
-
-    # fig.legend(handles=[patches.Patch(color='tab:orange', alpha=0.3, label='Reflectance point cloud'),
-    #                    lines.Line2D([], [], color='tab:blue', label='Leaf'),
-    #                    lines.Line2D([], [], color='tab:purple', label='25% reflectance'),
-    #                    lines.Line2D([], [], color='tab:green', label='40% reflectance'),
-    #                    lines.Line2D([], [], color='tab:red', label='98% reflectance'), ],
-    #           loc='upper center',
-    #           ncol=4)
 
     ax = axes[1]
     parts = ax.violinplot([rs3[:, i] for i in range(25)],

@@ -11,10 +11,11 @@ from msnerf.ms_model import MSNerfModelConfig
 MsNeRFMethod = MethodSpecification(
     config=TrainerConfig(
         method_name="msnerf",
-        steps_per_save=10000,
-        max_num_iterations=1000,
-        steps_per_eval_batch=10,
+        steps_per_save=3000,
+        max_num_iterations=3000,
+        steps_per_eval_batch=0,
         steps_per_eval_image=0,
+        steps_per_eval_all_images=0,
         mixed_precision=True,
         use_grad_scaler=True,
         pipeline=VanillaPipelineConfig(

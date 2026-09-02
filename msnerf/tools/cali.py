@@ -4,7 +4,7 @@ import os.path
 import time
 from pathlib import Path
 
-import PLYLoader
+import msnerf.PLYLoader as PLYLoader
 import numpy as np
 import torch
 import tqdm
@@ -21,7 +21,7 @@ from msnerf.ms_model import MSNerfModel
 from msnerf.tools.miscs import get_cali_matrix, r2_score, reference_gt_reflectance
 
 if __name__ == '__main__':
-    path = Path(r"D:\files\PHD\myNeRF\msnerf\outputs\87_0\msnerf\config.yml")
+    path = Path(r"D:\files\PHD\myNeRF\msnerf\outputs\61_0\msnerf\config.yml")
     config = yaml.load(path.read_text(), Loader=yaml.Loader)
     assert isinstance(config, TrainerConfig)
     config.load_dir = config.get_checkpoint_dir()
@@ -31,7 +31,7 @@ if __name__ == '__main__':
     ms_model: MSNerfModel = trainer.pipeline._model
     datamanager: MaskedDataManager = pipeline.datamanager
 
-    writer = SummaryWriter(path.parent / 'run' / str(time.time()))
+    writer = SummaryWriter(str(path.parent / 'run' / str(time.time())))
 
     r_mlp = MLP(
         in_dim=ms_model.config.geo_feat_dim,
@@ -82,16 +82,9 @@ if __name__ == '__main__':
         light_embedding = light_mlp(torch.cat([direction_encoding(ray_bundle.directions.reshape(-1, 3)),
                                                direction_encoding(normals.reshape(-1, 3))], dim=-1))
         loss = mse_loss(r * light_embedding, ms.reshape(-1, 25))
-        mse_val = loss.detach()
-        writer.add_scalar('loss', mse_val, epoch)
-        r2 = r2_score(light_embedding * r, ms.reshape(-1, 25))
-        writer.add_scalar('r2', r2, epoch)
-
         scaler.scale(loss).backward()
         scaler.step(optimizer)
         scaler.update()
-        # tqdm.tqdm.write(
-        #     f'{str(mse_val.item() ** 0.5)}      {str(r2.item())}    {str(torch.mean(light_embedding).item())}')
     if not os.path.exists(path.parent / 'models'):
         os.makedirs(path.parent / 'models')
     torch.save(light_mlp.state_dict(), path.parent / 'models' / 'E.pth')
@@ -123,6 +116,11 @@ if __name__ == '__main__':
             writer.add_scalar('r_loss', mse_val, epoch)
             r2 = r2_score(light_embedding * r, ms.reshape(-1, 25))
             writer.add_scalar('r_r2', r2, epoch)
+            # 计算MAE和RMSE
+            mae = torch.mean(torch.abs(r * light_embedding - ms.reshape(-1, 25)))
+            rmse = torch.sqrt(mse_val)
+            writer.add_scalar('r_mae', mae, epoch)
+            writer.add_scalar('r_rmse', rmse, epoch)
         scaler.scale(loss).backward()
         scaler.step(optimizer)
         scaler.update()

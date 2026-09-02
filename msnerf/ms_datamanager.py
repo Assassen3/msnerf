@@ -37,6 +37,26 @@ class MSRayGenerator(RayGenerator):
         return ray_bundle
 
 
+class EvalLoader():
+    def __init__(self, datasets, data):
+        self.datasets = datasets
+        self.data = data
+        self.num = self.data.shape[0]
+        self._i = 0
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        self._i += 1
+        if self._i >= self.num:
+            raise StopIteration
+        return self.datasets.cameras[self._i], {'image': self.data[self._i]}
+
+    def __len__(self):
+        return self.num
+
+
 @dataclass
 class MaskedDataManagerConfig(DataManagerConfig):
     _target: Type = field(default_factory=lambda: MaskedDataManager)
@@ -99,6 +119,7 @@ class MaskedDataManager(DataManager):
                 f.result()
         # Ray generator
         self.eval_ray_generator = MSRayGenerator(self.eval_dataset.cameras.to(self.device))
+        self.fixed_indices_eval_dataloader = EvalLoader(self.eval_dataset, self.eval_data)
 
     def setup_masks(self):
         all_datasets_num = len(self.train_dataset) + len(self.eval_dataset)

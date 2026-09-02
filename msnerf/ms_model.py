@@ -1,3 +1,4 @@
+from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple, Type
 from typing import Literal
@@ -19,9 +20,10 @@ from nerfstudio.model_components.ray_samplers import ProposalNetworkSampler
 from nerfstudio.model_components.renderers import AccumulationRenderer, DepthRenderer, NormalsRenderer
 from nerfstudio.model_components.scene_colliders import NearFarCollider
 from nerfstudio.models.base_model import Model, ModelConfig
-from nerfstudio.utils import colormaps
 from torch.nn import MSELoss
 from torch.nn import Parameter
+from torchmetrics.functional import mean_squared_error, peak_signal_noise_ratio, structural_similarity_index_measure
+from torchmetrics.image import LearnedPerceptualImagePatchSimilarity
 
 from msnerf.ms_field import MSNerfField
 from msnerf.ms_renderer import MSRenderer
@@ -66,7 +68,7 @@ class MSNerfModelConfig(ModelConfig):
     distortion_loss_mult: float = 0.002
     orientation_loss_mult: float = 0.0001
     pred_normal_loss_mult: float = 0.001
-    eval_num_rays_per_chunk: int = 1 << 17
+    eval_num_rays_per_chunk: int = 1 << 16
 
     senmantic: bool = False
 
@@ -313,51 +315,32 @@ class MSNerfModel(Model):
             self, outputs: Dict[str, torch.Tensor], batch: Dict[str, torch.Tensor]
     ) -> Tuple[Dict[str, float], Dict[str, torch.Tensor]]:
         gt_ms = batch["image"].to(self.device)
-        predicted_ms = outputs["ms"]  # Blended with background (black if random background)
-        acc = colormaps.apply_colormap(outputs["accumulation"])
-        depth = colormaps.apply_depth_colormap(
-            outputs["depth"],
-            accumulation=outputs["accumulation"],
-        )
+        predicted_ms = self.renderer_ms._extract_band(outputs["ms"], outputs["ms_index"])
 
-        expected_depth = colormaps.apply_depth_colormap(
-            outputs["expected_depth"],
-            accumulation=outputs["accumulation"],
-        )
-        predicted_ms = self.renderer_ms._extract_band(predicted_ms, outputs["ms_index"])
-        combined_ms = torch.cat([gt_ms, predicted_ms], dim=1)
-        combined_acc = torch.cat([acc], dim=1)
-        combined_depth = torch.cat([depth], dim=1)
-        combined_expected_depth = torch.cat([expected_depth], dim=1)
+        band_per_row = int(self.config.num_multispectral ** 0.5)
+        metrics_dict = {}
+        for band in range(self.config.num_multispectral):
+            gt_band = gt_ms[band // band_per_row:: band_per_row, band % band_per_row:: band_per_row][
+                None, None, ...].contiguous()
+            pred_band = predicted_ms[band // band_per_row:: band_per_row, band % band_per_row:: band_per_row].squeeze()[
+                None, None, ...].contiguous()
 
-        # Switch images from [H, W, C] to [1, C, H, W] for metrics computations
-        gt_ms = torch.moveaxis(gt_ms, -1, 0)[None, ...]
-        predicted_ms = torch.moveaxis(predicted_ms, -1, 0)[None, ...]
+            ssim = structural_similarity_index_measure(pred_band, gt_band)
+            psnr = peak_signal_noise_ratio(pred_band, gt_band, data_range=1.0)
+            mse = mean_squared_error(pred_band, gt_band)
+            lpips_class = LearnedPerceptualImagePatchSimilarity().to('cuda')
+            lpips = lpips_class(pred_band.repeat([1, 3, 1, 1]) * 2 - 1, gt_band.repeat([1, 3, 1, 1]) * 2 - 1)
+            # sam = spectral_angle_mapper(pred_band, gt_band)
 
-        psnr = self.psnr(gt_ms, predicted_ms)
-        ssim = self.ssim(gt_ms, predicted_ms)
-        # lpips = self.lpips(gt_ms, predicted_ms)
-        mse = self.ms_loss(gt_ms, predicted_ms)
-        # sam = self.sam(gt_ms.permute((0, 3, 1, 2)), predicted_ms.permute((0, 3, 1, 2)))
+            metrics_dict.update({f"psnr": float(psnr.item()),
+                                 f"ssim": float(ssim.item()),
+                                 f"mse": float(mse.item()),
+                                 f"lpips": float(lpips.item())
+                                 # f"{band}_sam": float(sam.item())
+                                 })
+            break
 
-        # all of these metrics will be logged as scalars
-        metrics_dict = {"psnr": float(psnr.item()), "ssim": float(ssim), "mse": float(mse),
-                        # "sam": float(sam)
-                        }  # type: ignore
-        # metrics_dict["lpips"] = float(lpips)
-
-        images_dict = {"img": combined_ms, "accumulation": combined_acc, "depth": combined_depth,
-                       "expected_depth": combined_expected_depth}
-
-        for i in range(len(self.config.proposal_net_args_list)):
-            key = f"prop_depth_{i}"
-            prop_depth_i = colormaps.apply_depth_colormap(
-                outputs[key],
-                accumulation=outputs["accumulation"],
-            )
-            images_dict[key] = prop_depth_i
-
-        return metrics_dict, images_dict
+        return metrics_dict, {}
 
     def get_rgba_image(self, outputs: Dict[str, torch.Tensor], output_name: str = "ms") -> torch.Tensor:
         ms = outputs[output_name]
@@ -367,9 +350,46 @@ class MSNerfModel(Model):
         return torch.cat((ms, acc), dim=-1)
 
     def get_outputs_for_camera(self, camera: Cameras, obb_box: Optional[OrientedBox] = None) -> Dict[str, torch.Tensor]:
-        ray_bundle = camera.generate_rays(camera_indices=0, keep_shape=True, obb_box=obb_box)
-        ms_per_row = int(camera.metadata['num_ms'] ** 0.5)
-        ms_index = (torch.arange(ray_bundle.shape[1], device=camera.device)[None, :] % ms_per_row + (
-                torch.arange(ray_bundle.shape[0], device=camera.device)[:, None] % ms_per_row) * ms_per_row)
-        ray_bundle.metadata['ms_index'] = ms_index[..., None]
-        return self.get_outputs_for_camera_ray_bundle(ray_bundle)
+        with torch.no_grad():
+            ray_bundle = camera.generate_rays(camera_indices=0, keep_shape=True, obb_box=obb_box)
+            ms_per_row = int(camera.metadata['num_ms'] ** 0.5)
+            ms_index = (torch.arange(ray_bundle.shape[1], device=camera.device)[None, :] % ms_per_row + (
+                    torch.arange(ray_bundle.shape[0], device=camera.device)[:, None] % ms_per_row) * ms_per_row)
+            ray_bundle.metadata['ms_index'] = ms_index[..., None]
+            num_rays_per_chunk = self.config.eval_num_rays_per_chunk
+            image_height, image_width = ray_bundle.origins.shape[:2]
+            num_rays = len(ray_bundle)
+            outputs_lists = defaultdict(list)
+            for i in range(0, num_rays, num_rays_per_chunk):
+                start_idx = i
+                end_idx = i + num_rays_per_chunk
+                ray_bundle_chunk = ray_bundle.get_row_major_sliced_ray_bundle(start_idx, end_idx)
+                ray_bundle_chunk = ray_bundle_chunk.to(self.device)
+                outputs = self.forward(ray_bundle=ray_bundle_chunk)
+                for output_name, output in outputs.items():  # type: ignore
+                    outputs_lists[output_name].append(output)
+            outputs = {}
+            for output_name, outputs_list in outputs_lists.items():
+                outputs[output_name] = torch.cat(outputs_list).view(image_height, image_width, -1)  # type: ignore
+            return outputs
+    def get_outputs_for_reduced_camera(self, camera: Cameras, obb_box: Optional[OrientedBox] = None) -> Dict[str, torch.Tensor]:
+        with torch.no_grad():
+            ray_bundle = camera.generate_rays(camera_indices=0, keep_shape=True, obb_box=obb_box)
+            reduced_ray_bundle = ray_bundle[2::5, 2::5]
+            # ray_bundle.metadata['ms_index'] = ms_index[..., None]
+            num_rays_per_chunk = self.config.eval_num_rays_per_chunk
+            image_height, image_width = reduced_ray_bundle.origins.shape[:2]
+            num_rays = len(reduced_ray_bundle)
+            outputs_lists = defaultdict(list)
+            for i in range(0, num_rays, num_rays_per_chunk):
+                start_idx = i
+                end_idx = i + num_rays_per_chunk
+                ray_bundle_chunk = reduced_ray_bundle.get_row_major_sliced_ray_bundle(start_idx, end_idx)
+                ray_bundle_chunk = ray_bundle_chunk.to(self.device)
+                outputs = self.forward(ray_bundle=ray_bundle_chunk)
+                for output_name, output in outputs.items():  # type: ignore
+                    outputs_lists[output_name].append(output)
+            outputs = {}
+            for output_name, outputs_list in outputs_lists.items():
+                outputs[output_name] = torch.cat(outputs_list).view(image_height, image_width, -1)  # type: ignore
+            return outputs
